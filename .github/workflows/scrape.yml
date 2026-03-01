@@ -1,0 +1,57 @@
+name: WestervillePulse Daily Scrape
+
+on:
+  schedule:
+    - cron: '0 12 * * *'  # 7am ET (EST) — runs daily
+  workflow_dispatch:        # Allow manual runs from the GitHub UI
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Restore dedup caches from previous runs so we don't re-add known items.
+      # Key rotates each run; restore-keys picks up the most recent prior cache.
+      - name: Restore dedup caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            seen_news_urls.json
+            seen_event_urls.json
+            seen_development_urls.json
+            seen_sos_entities.json
+            seen_place_ids.json
+          key: dedup-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: dedup-${{ runner.os }}-
+
+      - name: Write .env
+        run: |
+          echo "NOTION_TOKEN=${{ secrets.NOTION_TOKEN }}" >> .env
+          echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> .env
+          echo "NOTION_PARENT_PAGE_ID=${{ secrets.NOTION_PARENT_PAGE_ID }}" >> .env
+          echo "EVENTBRITE_API_KEY=${{ secrets.EVENTBRITE_API_KEY }}" >> .env
+
+      - name: Write database_ids.json
+        run: echo '${{ secrets.DATABASE_IDS_JSON }}' > database_ids.json
+
+      - name: Run scrapers
+        run: python run_all.py
+
+      - name: Upload run log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runs-log-${{ github.run_number }}
+          path: runs.log
+          retention-days: 30
