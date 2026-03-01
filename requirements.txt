@@ -1,0 +1,19 @@
+# WestervillePulse — Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Core
+requests>=2.31.0
+python-dotenv>=1.0.0
+
+# HTML Scraping (for future news/events scrapers)
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# RSS Feed parsing (for news scraper)
+feedparser>=6.0.10
+
+# iCal parsing (for city calendar events scraper)
+icalendar>=5.0.0
+
+# PDF parsing (for city council meeting minutes)
+pdfplumber>=0.10.0

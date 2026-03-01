@@ -1,0 +1,18 @@
+.env
+venv/
+__pycache__/
+*.pyc
+
+# Dedup caches (local state, not source)
+seen_place_ids.json
+seen_news_urls.json
+seen_event_urls.json
+seen_development_urls.json
+seen_sos_entities.json
+
+# Generated / local
+database_ids.json
+runs.log
+
+# Claude local memory
+.claude/
