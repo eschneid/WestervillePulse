@@ -25,7 +25,8 @@ from utils import elapsed, find_db_ids_path, load_dotenv_files, load_seen_set, s
 
 load_dotenv_files(__file__)
 
-NOTION_TOKEN    = os.getenv("NOTION_TOKEN", "")
+NOTION_TOKEN      = os.getenv("NOTION_TOKEN", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 NOTION_VERSION  = "2022-06-28"
 NOTION_BASE_URL = "https://api.notion.com/v1"
 NOTION_HEADERS  = {
@@ -158,6 +159,31 @@ CATEGORY_KEYWORDS = {
     ],
 }
 
+def generate_summary(title: str, rss_blurb: str) -> str:
+    """Call Claude Haiku to generate a clean 2-3 sentence summary.
+    Falls back to the RSS blurb if the API key is missing or the call fails."""
+    if not ANTHROPIC_API_KEY or not (title or rss_blurb):
+        return rss_blurb
+    import anthropic
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    prompt = (
+        f"Summarize this local news article for Westerville, OH residents "
+        f"in 2-3 concise, factual sentences. Do not start with 'This article'.\n\n"
+        f"Title: {title}\n"
+        f"Excerpt: {rss_blurb or '(none)'}"
+    )
+    try:
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return msg.content[0].text.strip()
+    except Exception as e:
+        print(f"    ⚠️  Claude API error: {e} — using RSS blurb")
+        return rss_blurb
+
+
 def detect_categories(title: str, summary: str) -> list[str]:
     """Detect categories based on keywords in title and summary."""
     text = (title + " " + summary).lower()
@@ -260,7 +286,7 @@ def add_news_to_notion(database_id: str, article: dict) -> bool:
                 "url": article["url"]
             },
             "Summary": {
-                "rich_text": [{"text": {"content": article["summary"]}}]
+                "rich_text": [{"text": {"content": article["summary"][:1000]}}]
             },
             "Scraped At": {
                 "date": {"start": datetime.now(timezone.utc).isoformat()}
@@ -314,6 +340,20 @@ def run():
         print("  ✅  Nothing new today — Notion is already up to date!")
         print(f"\n⏱️   Total runtime: {elapsed(total_start)}\n")
         return
+
+    # ── Phase 1.5: Generate AI summaries ─────────────────────────────────────
+    if ANTHROPIC_API_KEY:
+        phase_start = time.time()
+        print(f"  🤖  Generating AI summaries for {len(all_articles)} articles...")
+        for i, article in enumerate(all_articles, 1):
+            t = time.time()
+            print(f"  [{i:>3}/{len(all_articles)}] {article['title'][:55]:<55}", end="", flush=True)
+            article["summary"] = generate_summary(article["title"], article["summary"])
+            print(f"  ({elapsed(t)})")
+            time.sleep(0.2)
+        print(f"  ⏱️   AI summary phase          : {elapsed(phase_start)}\n")
+    else:
+        print("  ⚠️   ANTHROPIC_API_KEY not set — using RSS blurbs as summaries\n")
 
     # ── Phase 2: Write to Notion ──────────────────────────────────────────────
     phase_start = time.time()

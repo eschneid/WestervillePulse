@@ -17,3 +17,6 @@ icalendar>=5.0.0
 
 # PDF parsing (for city council meeting minutes)
 pdfplumber>=0.10.0
+
+# Claude API (for AI-generated article summaries)
+anthropic>=0.40.0

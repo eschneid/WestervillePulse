@@ -41,6 +41,7 @@ jobs:
           echo "GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}" >> .env
           echo "NOTION_PARENT_PAGE_ID=${{ secrets.NOTION_PARENT_PAGE_ID }}" >> .env
           echo "EVENTBRITE_API_KEY=${{ secrets.EVENTBRITE_API_KEY }}" >> .env
+          echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> .env
 
       - name: Write database_ids.json
         run: echo '${{ secrets.DATABASE_IDS_JSON }}' > database_ids.json
