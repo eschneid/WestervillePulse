@@ -42,6 +42,9 @@ jobs:
           echo "NOTION_PARENT_PAGE_ID=${{ secrets.NOTION_PARENT_PAGE_ID }}" >> .env
           echo "EVENTBRITE_API_KEY=${{ secrets.EVENTBRITE_API_KEY }}" >> .env
           echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> .env
+          echo "GMAIL_USER=${{ secrets.GMAIL_USER }}" >> .env
+          echo "GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}" >> .env
+          echo "DIGEST_TO=${{ secrets.DIGEST_TO }}" >> .env
 
       - name: Write database_ids.json
         run: echo '${{ secrets.DATABASE_IDS_JSON }}' > database_ids.json

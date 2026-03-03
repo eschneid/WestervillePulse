@@ -24,6 +24,7 @@ SCRAPERS = [
     ("🏢  SOS Filings",   "scrapers/sos_scraper.py"),
     ("🎉  Events",         "scrapers/events_scraper.py"),
     ("🏗️  Development",    "scrapers/development_scraper.py"),
+    ("📧  Email Digest",   "scrapers/digest.py"),
 ]
 
 LOG_PATH = HERE / "runs.log"
