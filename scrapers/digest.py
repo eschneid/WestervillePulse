@@ -52,6 +52,16 @@ YESTERDAY = TODAY - timedelta(days=1)
 WEEK_OUT  = TODAY + timedelta(days=7)
 
 
+def _fmt_full_date(d) -> str:
+    """Format a date as 'Monday, March 2, 2026' — cross-platform (no %-d)."""
+    return f"{d.strftime('%A, %B')} {d.day}, {d.year}"
+
+
+def _fmt_short_date(d) -> str:
+    """Format a date as 'Mon Mar 2' — cross-platform."""
+    return f"{d.strftime('%a %b')} {d.day}"
+
+
 # ── Notion helpers ────────────────────────────────────────────────────────────
 
 def _load_db_ids() -> dict:
@@ -189,7 +199,7 @@ def fetch_development(db_id: str) -> list[dict]:
 def generate_intro(n_news, n_events, n_restaurants, n_dev) -> str:
     fallback = (
         f"Here's your daily Westerville update for "
-        f"{TODAY.strftime('%A, %B %-d, %Y')}. "
+        f"{_fmt_full_date(TODAY)}. "
         f"Check out what's happening in your community below."
     )
     if not ANTHROPIC_API_KEY:
@@ -199,7 +209,7 @@ def generate_intro(n_news, n_events, n_restaurants, n_dev) -> str:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         prompt = (
             f"Write a friendly 2-3 sentence intro for a daily Westerville, OH neighborhood "
-            f"newsletter. Today is {TODAY.strftime('%A, %B %-d, %Y')}. "
+            f"newsletter. Today is {_fmt_full_date(TODAY)}. "
             f"There are {n_news} new local news articles, {n_events} events coming up this "
             f"week, {n_restaurants} new businesses discovered, and {n_dev} development updates. "
             f"Keep it warm, civic-minded, and specific to Westerville."
@@ -222,14 +232,14 @@ def _fmt_date(iso: str | None) -> str:
         return "TBD"
     try:
         d = datetime.fromisoformat(iso.split("T")[0])
-        return d.strftime("%a %b %-d")
+        return _fmt_short_date(d)
     except Exception:
         return iso
 
 
 def build_plain(intro: str, news, events, restaurants, development) -> str:
     lines = [
-        f"WESTERVILLE PULSE — {TODAY.strftime('%A, %B %-d, %Y')}",
+        f"WESTERVILLE PULSE — {_fmt_full_date(TODAY)}",
         "=" * 55,
         "",
         intro,
@@ -279,7 +289,7 @@ def build_plain(intro: str, news, events, restaurants, development) -> str:
 
 
 def build_html(intro: str, news, events, restaurants, development) -> str:
-    date_str = TODAY.strftime("%A, %B %-d, %Y")
+    date_str = _fmt_full_date(TODAY)
 
     def section(emoji, title, items_html):
         if not items_html:
@@ -447,7 +457,7 @@ def run():
     print(f"  → {intro[:80]}...")
 
     # Build and send email
-    date_str = TODAY.strftime("%A, %B %-d")
+    date_str = f"{TODAY.strftime('%A, %B')} {TODAY.day}"
     subject  = f"🌆 Westerville Pulse — {date_str}"
     plain    = build_plain(intro, news, events, restaurants, development)
     html     = build_html(intro, news, events, restaurants, development)
