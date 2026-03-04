@@ -19,6 +19,7 @@ import json
 import smtplib
 import time
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -50,6 +51,9 @@ DB_IDS_PATH = find_db_ids_path(__file__)
 TODAY     = datetime.now(timezone.utc).date()
 YESTERDAY = TODAY - timedelta(days=1)
 WEEK_OUT  = TODAY + timedelta(days=7)
+
+_HOUR_ET     = datetime.now(ZoneInfo("America/New_York")).hour
+TIME_OF_DAY  = "morning" if _HOUR_ET < 12 else "afternoon" if _HOUR_ET < 17 else "evening"
 
 
 def _fmt_full_date(d) -> str:
@@ -332,14 +336,19 @@ def generate_intro(n_news, n_events, n_restaurants, n_dev, weather=None) -> str:
             f"newsletter. Today is {_fmt_full_date(TODAY)}.{weather_ctx} "
             f"There are {n_news} new local news articles, {n_events} events coming up this "
             f"week, {n_restaurants} new businesses discovered, and {n_dev} development updates. "
-            f"Keep it warm, civic-minded, and specific to Westerville."
+            f"Start with 'Good {TIME_OF_DAY.capitalize()}, Westerville!'. "
+            f"Keep it warm, civic-minded, and specific to Westerville. "
+            f"Plain text only — no markdown, no hashtags, no bullet points."
         )
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=150,
             messages=[{"role": "user", "content": prompt}],
         )
-        return msg.content[0].text.strip()
+        text = msg.content[0].text.strip()
+        # Strip any markdown heading markers Claude might still add
+        text = text.lstrip("#").strip()
+        return text
     except Exception as e:
         print(f"  ⚠️  Claude intro error: {e}")
         return fallback
