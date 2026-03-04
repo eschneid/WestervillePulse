@@ -123,6 +123,118 @@ def _bool(prop) -> bool:
     return bool((prop or {}).get("checkbox", False))
 
 
+# ── Weather ────────────────────────────────────────────────────────────────────
+
+_WMO_CODES = {
+    0:  ("☀️",  "Clear"),
+    1:  ("🌤️", "Mostly Clear"),
+    2:  ("⛅",  "Partly Cloudy"),
+    3:  ("☁️",  "Overcast"),
+    45: ("🌫️", "Foggy"),
+    48: ("🌫️", "Foggy"),
+    51: ("🌦️", "Light Drizzle"),
+    53: ("🌦️", "Drizzle"),
+    55: ("🌧️", "Heavy Drizzle"),
+    61: ("🌧️", "Light Rain"),
+    63: ("🌧️", "Rain"),
+    65: ("🌧️", "Heavy Rain"),
+    71: ("🌨️", "Light Snow"),
+    73: ("🌨️", "Snow"),
+    75: ("❄️",  "Heavy Snow"),
+    77: ("🌨️", "Snow Grains"),
+    80: ("🌦️", "Rain Showers"),
+    81: ("🌧️", "Rain Showers"),
+    82: ("⛈️",  "Heavy Showers"),
+    85: ("🌨️", "Snow Showers"),
+    86: ("❄️",  "Heavy Snow"),
+    95: ("⛈️",  "Thunderstorm"),
+    96: ("⛈️",  "Thunderstorm"),
+    99: ("⛈️",  "Thunderstorm"),
+}
+
+
+def _wmo(code: int) -> tuple[str, str]:
+    return _WMO_CODES.get(code, ("🌡️", "Unknown"))
+
+
+def fetch_weather() -> list[dict] | None:
+    """Fetch a 4-day forecast from Open-Meteo (free, no API key required)."""
+    try:
+        resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude":   40.1262,
+                "longitude":  -82.9291,
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "temperature_unit": "fahrenheit",
+                "timezone":   "America/New_York",
+                "forecast_days": 4,
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            print(f"  ⚠️  Weather fetch failed ({resp.status_code})")
+            return None
+        data = resp.json()["daily"]
+        days = []
+        for i in range(len(data["time"])):
+            emoji, desc = _wmo(data["weather_code"][i])
+            days.append({
+                "date":   data["time"][i],
+                "emoji":  emoji,
+                "desc":   desc,
+                "high":   round(data["temperature_2m_max"][i]),
+                "low":    round(data["temperature_2m_min"][i]),
+                "precip": data["precipitation_probability_max"][i],
+            })
+        return days
+    except Exception as e:
+        print(f"  ⚠️  Weather error: {e}")
+        return None
+
+
+def _weather_html(weather: list[dict]) -> str:
+    if not weather:
+        return ""
+    cells = ""
+    for i, w in enumerate(weather):
+        if i > 0:
+            cells += '<td width="5"></td>'
+        if i == 0:
+            label      = "TODAY"
+            label_col  = "#1e40af"
+            bg         = "#ffffff"
+            emoji_size = "26px"
+            temp_size  = "20px"
+        else:
+            d          = datetime.fromisoformat(w["date"])
+            label      = _fmt_short_date(d).upper()
+            label_col  = "#6b7280"
+            bg         = "#dbeafe"
+            emoji_size = "18px"
+            temp_size  = "13px"
+        precip = f" · {w['precip']}% 🌧" if w["precip"] >= 20 else ""
+        cells += (
+            f'<td align="center" valign="top" '
+            f'style="background:{bg};border-radius:8px;padding:12px 6px;">'
+            f'<div style="font-size:{emoji_size};">{w["emoji"]}</div>'
+            f'<div style="font-size:10px;font-weight:700;color:{label_col};'
+            f'margin:4px 0 2px;white-space:nowrap;">{label}</div>'
+            f'<div style="font-size:{temp_size};font-weight:700;color:#111827;">{w["high"]}°</div>'
+            f'<div style="font-size:11px;color:#9ca3af;">/{w["low"]}°F</div>'
+            f'<div style="font-size:10px;color:#6b7280;margin-top:3px;">{w["desc"]}{precip}</div>'
+            f'</td>'
+        )
+    return (
+        '<div style="background:#eff6ff;border-radius:10px;padding:14px 16px;margin:16px 0 20px;">'
+        '<p style="margin:0 0 10px;font-size:11px;font-weight:700;color:#3b82f6;letter-spacing:.08em;">'
+        '⛅ WESTERVILLE WEATHER</p>'
+        f'<table width="100%" cellpadding="0" cellspacing="0" border="0">'
+        f'<tr>{cells}</tr>'
+        '</table></div>'
+    )
+
+
 # ── Fetch each section ────────────────────────────────────────────────────────
 
 def fetch_news(db_id: str) -> list[dict]:
@@ -196,7 +308,7 @@ def fetch_development(db_id: str) -> list[dict]:
 
 # ── Claude intro ──────────────────────────────────────────────────────────────
 
-def generate_intro(n_news, n_events, n_restaurants, n_dev) -> str:
+def generate_intro(n_news, n_events, n_restaurants, n_dev, weather=None) -> str:
     fallback = (
         f"Here's your daily Westerville update for "
         f"{_fmt_full_date(TODAY)}. "
@@ -207,9 +319,17 @@ def generate_intro(n_news, n_events, n_restaurants, n_dev) -> str:
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        weather_ctx = ""
+        if weather:
+            w = weather[0]
+            weather_ctx = (
+                f" Today's weather: {w['desc']}, high {w['high']}°F / low {w['low']}°F"
+                + (f", {w['precip']}% chance of precipitation" if w["precip"] >= 30 else "")
+                + "."
+            )
         prompt = (
             f"Write a friendly 2-3 sentence intro for a daily Westerville, OH neighborhood "
-            f"newsletter. Today is {_fmt_full_date(TODAY)}. "
+            f"newsletter. Today is {_fmt_full_date(TODAY)}.{weather_ctx} "
             f"There are {n_news} new local news articles, {n_events} events coming up this "
             f"week, {n_restaurants} new businesses discovered, and {n_dev} development updates. "
             f"Keep it warm, civic-minded, and specific to Westerville."
@@ -237,7 +357,7 @@ def _fmt_date(iso: str | None) -> str:
         return iso
 
 
-def build_plain(intro: str, news, events, restaurants, development) -> str:
+def build_plain(intro: str, news, events, restaurants, development, weather=None) -> str:
     lines = [
         f"WESTERVILLE PULSE — {_fmt_full_date(TODAY)}",
         "=" * 55,
@@ -245,6 +365,14 @@ def build_plain(intro: str, news, events, restaurants, development) -> str:
         intro,
         "",
     ]
+
+    if weather:
+        lines += ["WEATHER (Westerville, OH)", "-" * 30]
+        for i, w in enumerate(weather):
+            label = "Today" if i == 0 else _fmt_short_date(datetime.fromisoformat(w["date"]))
+            precip = f", {w['precip']}% rain" if w["precip"] >= 20 else ""
+            lines.append(f"• {label}: {w['emoji']} {w['desc']}, {w['high']}°/{w['low']}°F{precip}")
+        lines.append("")
 
     if news:
         lines += [f"NEWS ({len(news)} articles)", "-" * 30]
@@ -288,7 +416,7 @@ def build_plain(intro: str, news, events, restaurants, development) -> str:
     return "\n".join(lines)
 
 
-def build_html(intro: str, news, events, restaurants, development) -> str:
+def build_html(intro: str, news, events, restaurants, development, weather=None) -> str:
     date_str = _fmt_full_date(TODAY)
 
     def section(emoji, title, items_html):
@@ -363,6 +491,8 @@ def build_html(intro: str, news, events, restaurants, development) -> str:
     <div style="padding:24px 32px;">
       <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 8px;">{intro}</p>
 
+      {_weather_html(weather)}
+
       {section("📰", f"Today's News &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(news)})</span>", news_items)}
       {section("🎉", f"This Week's Events &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(events)})</span>", event_items)}
       {section("🍽️", f"New Businesses &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(restaurants)})</span>", rest_items)}
@@ -422,6 +552,12 @@ def run():
     total_start = time.time()
     db_ids = _load_db_ids()
 
+    # Fetch weather
+    t = time.time()
+    print(f"  Fetching: {'Weather':<30}", end="", flush=True)
+    weather = fetch_weather()
+    print(f"  {'OK' if weather else 'unavailable'}  ({elapsed(t)})")
+
     # Fetch all sections
     t = time.time()
     print(f"  Fetching: {'News':<30}", end="", flush=True)
@@ -452,15 +588,15 @@ def run():
     # Generate Claude intro
     t = time.time()
     print(f"\n  Generating intro...", end="", flush=True)
-    intro = generate_intro(len(news), len(events), len(restaurants), len(development))
+    intro = generate_intro(len(news), len(events), len(restaurants), len(development), weather)
     print(f"  ({elapsed(t)})")
     print(f"  → {intro[:80]}...")
 
     # Build and send email
     date_str = f"{TODAY.strftime('%A, %B')} {TODAY.day}"
     subject  = f"🌆 Westerville Pulse — {date_str}"
-    plain    = build_plain(intro, news, events, restaurants, development)
-    html     = build_html(intro, news, events, restaurants, development)
+    plain    = build_plain(intro, news, events, restaurants, development, weather)
+    html     = build_html(intro, news, events, restaurants, development, weather)
 
     print(f"\n  Sending to: {', '.join(recipients)}")
     t = time.time()
