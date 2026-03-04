@@ -266,16 +266,24 @@ def fetch_events(db_id: str) -> list[dict]:
         },
         "sorts": [{"property": "Start Date", "direction": "ascending"}],
     })
-    return [
-        {
-            "name":       _text(p["properties"].get("Event Name")),
-            "start_date": _date(p["properties"].get("Start Date")),
+    seen, result = set(), []
+    for p in pages:
+        name = _text(p["properties"].get("Event Name"))
+        if not name:
+            continue
+        start_date = _date(p["properties"].get("Start Date"))
+        key = (name, start_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({
+            "name":       name,
+            "start_date": start_date,
             "location":   _text(p["properties"].get("Location / Venue")),
             "is_free":    _bool(p["properties"].get("Is Free")),
             "url":        _url(p["properties"].get("Event URL")),
-        }
-        for p in pages if _text(p["properties"].get("Event Name"))
-    ]
+        })
+    return result
 
 
 def fetch_restaurants(db_id: str) -> list[dict]:
