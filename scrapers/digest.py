@@ -28,6 +28,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import elapsed, find_db_ids_path, load_dotenv_files
+from holiday_utils import get_today_holiday, get_holiday_greeting, filter_holiday_events
 
 load_dotenv_files(__file__)
 
@@ -320,13 +321,16 @@ def fetch_development(db_id: str) -> list[dict]:
 
 # ── Claude intro ──────────────────────────────────────────────────────────────
 
-def generate_intro(n_news, n_events, n_restaurants, n_dev, weather=None) -> str:
+def generate_intro(n_news, n_events, n_restaurants, n_dev, weather=None, holiday=None) -> str:
+    holiday_name = holiday[0] if holiday else None
     fallback = (
         f"Here's your daily Westerville update for "
         f"{_fmt_full_date(TODAY)}. "
         f"Check out what's happening in your community below."
     )
     if not ANTHROPIC_API_KEY:
+        if holiday_name:
+            return get_holiday_greeting(holiday_name)
         return fallback
     try:
         import anthropic
@@ -339,9 +343,10 @@ def generate_intro(n_news, n_events, n_restaurants, n_dev, weather=None) -> str:
                 + (f", {w['precip']}% chance of precipitation" if w["precip"] >= 30 else "")
                 + "."
             )
+        holiday_ctx = f" Today is {holiday_name} — weave in a brief festive nod." if holiday_name else ""
         prompt = (
             f"Write a friendly 2-3 sentence intro for a daily Westerville, OH neighborhood "
-            f"newsletter. Today is {_fmt_full_date(TODAY)}.{weather_ctx} "
+            f"newsletter. Today is {_fmt_full_date(TODAY)}.{weather_ctx}{holiday_ctx} "
             f"There are {n_news} new local news articles, {n_events} events coming up this "
             f"week, {n_restaurants} new businesses discovered, and {n_dev} development updates. "
             f"Start with 'Good {TIME_OF_DAY.capitalize()}, Westerville!'. "
@@ -374,14 +379,16 @@ def _fmt_date(iso: str | None) -> str:
         return iso
 
 
-def build_plain(intro: str, news, events, restaurants, development, weather=None) -> str:
+def build_plain(intro: str, news, events, restaurants, development, weather=None, holiday=None) -> str:
     lines = [
         f"WESTERVILLE PULSE — {_fmt_full_date(TODAY)}",
         "=" * 55,
         "",
-        intro,
-        "",
     ]
+    if holiday:
+        name, emoji = holiday
+        lines += [f"{emoji}  Happy {name}, Westerville!", ""]
+    lines += [intro, ""]
 
     if weather:
         lines += ["WEATHER (Westerville, OH)", "-" * 30]
@@ -401,6 +408,15 @@ def build_plain(intro: str, news, events, restaurants, development, weather=None
 
     if events:
         lines += [f"THIS WEEK'S EVENTS ({len(events)})", "-" * 30]
+        if holiday:
+            holiday_events = filter_holiday_events(events, holiday[0])
+            if holiday_events:
+                lines.append(f"  {holiday[1]}  {holiday[0]}-themed events:")
+                for e in holiday_events:
+                    free = " [FREE]" if e["is_free"] else ""
+                    loc  = f" @ {e['location']}" if e["location"] else ""
+                    lines.append(f"  * {e['name']}{loc}{free}")
+                lines.append("")
         for e in events:
             free = " [FREE]" if e["is_free"] else ""
             loc  = f" @ {e['location']}" if e["location"] else ""
@@ -433,7 +449,46 @@ def build_plain(intro: str, news, events, restaurants, development, weather=None
     return "\n".join(lines)
 
 
-def build_html(intro: str, news, events, restaurants, development, weather=None) -> str:
+def _holiday_banner_html(holiday: tuple[str, str]) -> str:
+    name, emoji = holiday
+    return (
+        f'<div style="background:linear-gradient(135deg,#065f46 0%,#047857 100%);'
+        f'border-radius:10px;padding:14px 20px;margin:0 0 20px;text-align:center;">'
+        f'<span style="font-size:22px;">{emoji}</span>'
+        f'<span style="font-size:15px;font-weight:700;color:#ecfdf5;margin-left:8px;">'
+        f'Happy {name}, Westerville!'
+        f'</span>'
+        f'</div>'
+    )
+
+
+def _holiday_events_html(events: list[dict], holiday: tuple[str, str]) -> str:
+    """Return an HTML callout block for holiday-themed events, or '' if none match."""
+    themed = filter_holiday_events(events, holiday[0])
+    if not themed:
+        return ""
+    name, emoji = holiday
+    items = "".join(
+        f'<li style="padding:5px 0;font-size:13px;color:#065f46;">'
+        f'<strong>{e["name"]}</strong>'
+        + (f' <span style="color:#6b7280;">@ {e["location"]}</span>' if e.get("location") else "")
+        + (f' <span style="background:#d1fae5;color:#065f46;font-size:11px;'
+           f'font-weight:600;padding:1px 5px;border-radius:9999px;margin-left:4px;">FREE</span>'
+           if e.get("is_free") else "")
+        + f'</li>'
+        for e in themed
+    )
+    return (
+        f'<div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:10px;'
+        f'padding:14px 16px;margin:20px 0;">'
+        f'<p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#047857;'
+        f'letter-spacing:.08em;">{emoji} {name.upper()} EVENTS IN WESTERVILLE</p>'
+        f'<ul style="margin:0;padding:0;list-style:none;">{items}</ul>'
+        f'</div>'
+    )
+
+
+def build_html(intro: str, news, events, restaurants, development, weather=None, holiday=None) -> str:
     date_str = _fmt_full_date(TODAY)
 
     def section(emoji, title, items_html):
@@ -489,6 +544,9 @@ def build_html(intro: str, news, events, restaurants, development, weather=None)
         for d in development
     )
 
+    holiday_banner = _holiday_banner_html(holiday) if holiday else ""
+    holiday_events_block = _holiday_events_html(events, holiday) if holiday else ""
+
     body = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
@@ -506,9 +564,11 @@ def build_html(intro: str, news, events, restaurants, development, weather=None)
 
     <!-- Content -->
     <div style="padding:24px 32px;">
+      {holiday_banner}
       <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 8px;">{intro}</p>
 
       {_weather_html(weather)}
+      {holiday_events_block}
 
       {section("📰", f"Today's News &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(news)})</span>", news_items)}
       {section("🎉", f"This Week's Events &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(events)})</span>", event_items)}
@@ -569,6 +629,11 @@ def run():
     total_start = time.time()
     db_ids = _load_db_ids()
 
+    # Detect today's holiday
+    holiday = get_today_holiday()
+    if holiday:
+        print(f"  {holiday[1]}  Today is {holiday[0]}")
+
     # Fetch weather
     t = time.time()
     print(f"  Fetching: {'Weather':<30}", end="", flush=True)
@@ -602,18 +667,21 @@ def run():
         print("  Added 0 digest\n")
         return
 
-    # Generate Claude intro
+    # Generate Claude intro (with holiday context if applicable)
     t = time.time()
     print(f"\n  Generating intro...", end="", flush=True)
-    intro = generate_intro(len(news), len(events), len(restaurants), len(development), weather)
+    intro = generate_intro(len(news), len(events), len(restaurants), len(development), weather, holiday)
     print(f"  ({elapsed(t)})")
     print(f"  → {intro[:80]}...")
 
     # Build and send email
     date_str = f"{TODAY.strftime('%A, %B')} {TODAY.day}"
-    subject  = f"🌆 Westerville Pulse — {date_str}"
-    plain    = build_plain(intro, news, events, restaurants, development, weather)
-    html     = build_html(intro, news, events, restaurants, development, weather)
+    if holiday:
+        subject = f"🌆 Westerville Pulse {holiday[1]} — {holiday[0]} Edition"
+    else:
+        subject = f"🌆 Westerville Pulse — {date_str}"
+    plain    = build_plain(intro, news, events, restaurants, development, weather, holiday)
+    html     = build_html(intro, news, events, restaurants, development, weather, holiday)
 
     print(f"\n  Sending to: {', '.join(recipients)}")
     t = time.time()
