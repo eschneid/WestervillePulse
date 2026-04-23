@@ -593,7 +593,7 @@ def send_email(subject: str, plain: str, html: str, recipients: list[str]) -> bo
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = GMAIL_USER
-    msg["To"]      = ", ".join(recipients)
+    msg["To"]      = GMAIL_USER
     msg.attach(MIMEText(plain, "plain", "utf-8"))
     msg.attach(MIMEText(html,  "html",  "utf-8"))
     try:
