@@ -6,8 +6,10 @@ uses Claude Haiku to write a friendly intro, then sends an HTML
 email via Gmail SMTP.
 
 Requires in .env:
-    NOTION_TOKEN, GMAIL_USER, GMAIL_APP_PASSWORD, DIGEST_TO
+    NOTION_TOKEN, GMAIL_USER, GMAIL_APP_PASSWORD
     ANTHROPIC_API_KEY  (optional — falls back to plain intro)
+
+Recipients are loaded from digest_recipients.txt in the repo root (one email per line).
 
 Usage:
     python scrapers/digest.py
@@ -38,7 +40,17 @@ NOTION_TOKEN      = os.getenv("NOTION_TOKEN", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 GMAIL_USER        = os.getenv("GMAIL_USER", "")
 GMAIL_APP_PASSWORD= os.getenv("GMAIL_APP_PASSWORD", "")
-DIGEST_TO_RAW     = os.getenv("DIGEST_TO", "")
+
+def _load_recipients() -> list[str]:
+    """Load recipient emails from digest_recipients.txt (repo root)."""
+    candidates = [
+        Path(__file__).resolve().parent.parent / "digest_recipients.txt",
+        Path(__file__).resolve().parent / "digest_recipients.txt",
+    ]
+    for p in candidates:
+        if p.exists():
+            return [line.strip() for line in p.read_text().splitlines() if line.strip()]
+    return []
 
 NOTION_BASE    = "https://api.notion.com/v1"
 NOTION_HEADERS = {
@@ -398,6 +410,14 @@ def build_plain(intro: str, news, events, restaurants, development, weather=None
             lines.append(f"• {label}: {w['emoji']} {w['desc']}, {w['high']}°/{w['low']}°F{precip}")
         lines.append("")
 
+    new_label = "✨ NEW  " if TODAY <= _NOTION_NEW_UNTIL else ""
+    lines += [
+        f"{new_label}📋 Browse the full Westerville Pulse database",
+        f"   {_NOTION_URL}",
+        "   News · Restaurants & Businesses · Events · Development projects",
+        "",
+    ]
+
     if news:
         lines += [f"NEWS ({len(news)} articles)", "-" * 30]
         for a in news:
@@ -447,6 +467,29 @@ def build_plain(intro: str, news, events, restaurants, development, weather=None
 
     lines += ["---", "Westerville Pulse • Reply to unsubscribe"]
     return "\n".join(lines)
+
+
+_NOTION_URL      = "https://road-iodine-212.notion.site/westervillepulse"
+_NOTION_NEW_UNTIL = datetime(2026, 5, 9).date()  # show "New!" badge until this date
+
+
+def _notion_promo_html() -> str:
+    is_new = TODAY <= _NOTION_NEW_UNTIL
+    new_badge = (
+        '<span style="background:#fef08a;color:#713f12;font-size:10px;font-weight:700;'
+        'padding:2px 7px;border-radius:9999px;margin-right:8px;vertical-align:middle;">'
+        '✨ NEW</span>'
+    ) if is_new else ""
+    return (
+        f'<div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;'
+        f'padding:14px 18px;margin:16px 0 20px;text-align:center;">'
+        f'{new_badge}'
+        f'<a href="{_NOTION_URL}" style="color:#0369a1;font-size:13px;font-weight:600;text-decoration:none;">'
+        f'📋 Browse the full Westerville Pulse database</a>'
+        f'<span style="color:#6b7280;font-size:12px;display:block;margin-top:4px;">'
+        f'News · Restaurants &amp; Businesses · Events · Development projects</span>'
+        f'</div>'
+    )
 
 
 def _holiday_banner_html(holiday: tuple[str, str]) -> str:
@@ -568,6 +611,7 @@ def build_html(intro: str, news, events, restaurants, development, weather=None,
       <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 8px;">{intro}</p>
 
       {_weather_html(weather)}
+      {_notion_promo_html()}
       {holiday_events_block}
 
       {section("📰", f"Today's News &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(news)})</span>", news_items)}
@@ -614,17 +658,20 @@ def run():
     print("=" * 55)
 
     # Check required env vars
-    missing = [v for v in ("NOTION_TOKEN", "GMAIL_USER", "GMAIL_APP_PASSWORD", "DIGEST_TO") if not os.getenv(v)]
+    missing = [v for v in ("NOTION_TOKEN", "GMAIL_USER", "GMAIL_APP_PASSWORD") if not os.getenv(v)]
     if missing:
         print(f"\n  ⚠️  Missing env vars: {', '.join(missing)} — skipping digest.")
         print("  Added 0 digest\n")
         return
 
-    recipients = [r.strip() for r in DIGEST_TO_RAW.split(",") if r.strip()]
+    debug = "--debug" in sys.argv
+    recipients = ["eschneid@gmail.com"] if debug else _load_recipients()
     if not recipients:
-        print("  ⚠️  DIGEST_TO is empty — skipping digest.")
+        print("  ⚠️  digest_recipients.txt not found or empty — skipping digest.")
         print("  Added 0 digest\n")
         return
+    if debug:
+        print("  🐛  Debug mode — sending only to eschneid@gmail.com")
 
     total_start = time.time()
     db_ids = _load_db_ids()
