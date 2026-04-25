@@ -471,6 +471,7 @@ def build_plain(intro: str, news, events, restaurants, development, weather=None
 
 _NOTION_URL      = "https://road-iodine-212.notion.site/westervillepulse"
 _NOTION_NEW_UNTIL = datetime(2026, 5, 9).date()  # show "New!" badge until this date
+_SCRAPER_UPDATE_UNTIL = datetime(2026, 4, 28).date()  # one-time notice about expanded restaurant categories
 
 
 def _notion_promo_html() -> str:
@@ -489,6 +490,19 @@ def _notion_promo_html() -> str:
         f'<span style="color:#6b7280;font-size:12px;display:block;margin-top:4px;">'
         f'News · Restaurants &amp; Businesses · Events · Development projects</span>'
         f'</div>'
+    )
+
+
+def _scraper_update_notice_html() -> str:
+    if TODAY > _SCRAPER_UPDATE_UNTIL:
+        return ""
+    return (
+        '<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;'
+        'padding:12px 16px;margin:0 0 16px;font-size:13px;color:#92400e;">'
+        '<strong>📣 Heads up:</strong> We recently expanded our restaurant &amp; business '
+        'categories (breweries, wine bars, cocktail bars, and more). You may see an unusually '
+        'large number of new listings this week as the system catches up — totally normal!'
+        '</div>'
     )
 
 
@@ -616,6 +630,7 @@ def build_html(intro: str, news, events, restaurants, development, weather=None,
 
       {section("📰", f"Today's News &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(news)})</span>", news_items)}
       {section("🎉", f"This Week's Events &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(events)})</span>", event_items)}
+      {_scraper_update_notice_html()}
       {section("🍽️", f"New Businesses &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(restaurants)})</span>", rest_items)}
       {section("🏗️", f"Development Updates &nbsp;<span style='font-weight:400;color:#6b7280;'>({len(development)})</span>", dev_items)}
     </div>

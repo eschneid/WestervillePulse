@@ -51,10 +51,16 @@ def load_database_id() -> str:
         sys.exit(1)
     return db_id
 
-# ── Westerville, OH center coordinates ───────────────────────────────────────
-WESTERVILLE_LAT  = 40.1262
-WESTERVILLE_LNG  = -82.9291
-SEARCH_RADIUS_M  = 8000  # ~5 miles — covers all of Westerville
+# ── Westerville, OH search grid (2×2) ────────────────────────────────────────
+# 20-result cap per Places API request requires multiple centers for full coverage.
+# 3km radius circles with slight overlap tile the whole city with no gaps.
+SEARCH_CENTERS = [
+    (40.135, -82.945, "NW"),
+    (40.135, -82.910, "NE"),
+    (40.105, -82.945, "SW"),
+    (40.105, -82.910, "SE"),
+]
+SEARCH_RADIUS_M = 3000  # ~1.9 miles per quadrant
 
 # Business type searches — using Places API (New) includedTypes
 SEARCH_QUERIES = [
@@ -62,6 +68,11 @@ SEARCH_QUERIES = [
     ("cafe",             "Café / Coffee"),
     ("coffee_shop",      "Café / Coffee"),
     ("bar",              "Bar / Brewery"),
+    ("bar_and_grill",    "Bar / Brewery"),
+    ("brewery",          "Bar / Brewery"),
+    ("wine_bar",         "Bar / Brewery"),
+    ("cocktail_bar",     "Bar / Brewery"),
+    ("sports_bar",       "Bar / Brewery"),
     ("bakery",           "Café / Coffee"),
     ("sandwich_shop",    "Restaurant"),
     ("pizza_restaurant", "Restaurant"),
@@ -82,7 +93,7 @@ PLACES_NEW_HEADERS = {
 
 # ── Google Places API (New): Nearby Search ────────────────────────────────────
 
-def fetch_places(place_type: str) -> list[dict]:
+def fetch_places(place_type: str, lat: float, lng: float) -> list[dict]:
     """Fetch nearby places using the Places API (New) — searchNearby endpoint."""
     payload = {
         "includedTypes": [place_type],
@@ -90,8 +101,8 @@ def fetch_places(place_type: str) -> list[dict]:
         "locationRestriction": {
             "circle": {
                 "center": {
-                    "latitude": WESTERVILLE_LAT,
-                    "longitude": WESTERVILLE_LNG,
+                    "latitude": lat,
+                    "longitude": lng,
                 },
                 "radius": float(SEARCH_RADIUS_M),
             }
@@ -255,7 +266,7 @@ def run():
     database_id = load_database_id()
     seen_ids    = load_seen_set(SEEN_IDS_PATH)
 
-    print(f"\n📍  Searching within 5 miles of Westerville, OH center...")
+    print(f"\n📍  Searching Westerville, OH via 2×2 grid (4 quadrants, 3km radius each)...")
     print(f"🗂️   Writing to Notion database: {database_id}\n")
 
     all_places = {}
@@ -264,15 +275,19 @@ def run():
 
     # ── Phase 1: Fetch from Google Places ────────────────────────────────────
     phase_start = time.time()
-    for place_type, display_type in SEARCH_QUERIES:
-        t = time.time()
-        print(f"  🔍  Searching: {place_type:<20}", end="", flush=True)
-        places = fetch_places(place_type)
-        for p in places:
-            pid = p.get("id") or p.get("place_id") or p.get("name")
-            if pid and pid not in all_places:
-                all_places[pid] = (p, display_type)
-        print(f"{len(places)} results  ({elapsed(t)})")
+    for lat, lng, quadrant in SEARCH_CENTERS:
+        print(f"\n  📍  Quadrant {quadrant} ({lat}, {lng})")
+        for place_type, display_type in SEARCH_QUERIES:
+            t = time.time()
+            print(f"    🔍  {place_type:<20}", end="", flush=True)
+            places = fetch_places(place_type, lat, lng)
+            new_in_query = 0
+            for p in places:
+                pid = p.get("id") or p.get("place_id") or p.get("name")
+                if pid and pid not in all_places:
+                    all_places[pid] = (p, display_type)
+                    new_in_query += 1
+            print(f"{len(places)} results, {new_in_query} new  ({elapsed(t)})")
 
     to_process = {pid: v for pid, v in all_places.items() if pid not in seen_ids}
     print(f"\n  📦  Unique places found : {len(all_places)}")
