@@ -4,6 +4,8 @@ WestervillePulse — Run All Scrapers
 Runs all 5 scrapers in sequence. One failing won't stop the others.
 Results are logged to runs.log with a timestamp.
 
+Last reviewed: 2026-06-29
+
 Usage:
     python run_all.py
 """
