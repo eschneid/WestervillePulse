@@ -23,3 +23,6 @@ anthropic>=0.40.0
 
 # Holiday detection (for themed daily digest)
 holidays>=0.55
+
+# Time zone data for zoneinfo (Windows has no system tz database)
+tzdata>=2024.1

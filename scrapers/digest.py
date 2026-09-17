@@ -31,6 +31,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from utils import elapsed, find_db_ids_path, load_dotenv_files
 from holiday_utils import get_today_holiday, get_holiday_greeting, filter_holiday_events
+from sports_utils import fetch_sports
 
 load_dotenv_files(__file__)
 
@@ -252,6 +253,43 @@ def _weather_html(weather: list[dict]) -> str:
     )
 
 
+# ── Sports ─────────────────────────────────────────────────────────────────────
+
+def _sports_html(sports: list[dict]) -> str:
+    if not sports:
+        return ""
+    rows = ""
+    for s in sports:
+        lines = ""
+        if s["result"]:
+            lines += (
+                f'<div style="font-size:13px;color:#374151;margin-top:2px;">'
+                f'<span style="color:#6b7280;">Final:</span> {s["result"]["text"]}</div>'
+            )
+        if s["next"]:
+            label = (
+                '<span style="background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;'
+                'padding:1px 6px;border-radius:9999px;">TODAY</span>'
+                if s["next"]["is_today"] else '<span style="color:#6b7280;">Next:</span>'
+            )
+            lines += (
+                f'<div style="font-size:13px;color:#374151;margin-top:2px;">'
+                f'{label} {s["next"]["text"]}</div>'
+            )
+        record = f' <span style="font-size:12px;font-weight:400;color:#9ca3af;">{s["record"]}</span>' if s["record"] else ""
+        rows += (
+            f'<div style="border-left:4px solid {s["color"]};padding:4px 0 4px 10px;margin:8px 0;">'
+            f'<div style="font-size:14px;font-weight:700;color:#111827;">{s["emoji"]} {s["name"]}{record}</div>'
+            f'{lines}</div>'
+        )
+    return (
+        '<div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin:0 0 20px;">'
+        '<p style="margin:0 0 4px;font-size:11px;font-weight:700;color:#6b7280;letter-spacing:.08em;">'
+        '🏟️ LOCAL SPORTS</p>'
+        f'{rows}</div>'
+    )
+
+
 # ── Fetch each section ────────────────────────────────────────────────────────
 
 def fetch_news(db_id: str) -> list[dict]:
@@ -391,7 +429,7 @@ def _fmt_date(iso: str | None) -> str:
         return iso
 
 
-def build_plain(intro: str, news, events, restaurants, development, weather=None, holiday=None) -> str:
+def build_plain(intro: str, news, events, restaurants, development, weather=None, holiday=None, sports=None) -> str:
     lines = [
         f"WESTERVILLE PULSE — {_fmt_full_date(TODAY)}",
         "=" * 55,
@@ -408,6 +446,18 @@ def build_plain(intro: str, news, events, restaurants, development, weather=None
             label = "Today" if i == 0 else _fmt_short_date(datetime.fromisoformat(w["date"]))
             precip = f", {w['precip']}% rain" if w["precip"] >= 20 else ""
             lines.append(f"• {label}: {w['emoji']} {w['desc']}, {w['high']}°/{w['low']}°F{precip}")
+        lines.append("")
+
+    if sports:
+        lines += ["LOCAL SPORTS", "-" * 30]
+        for s in sports:
+            record = f" ({s['record']})" if s["record"] else ""
+            lines.append(f"• {s['emoji']} {s['name']}{record}")
+            if s["result"]:
+                lines.append(f"  Final: {s['result']['text']}")
+            if s["next"]:
+                label = "TODAY" if s["next"]["is_today"] else "Next"
+                lines.append(f"  {label}: {s['next']['text']}")
         lines.append("")
 
     new_label = "✨ NEW  " if TODAY <= _NOTION_NEW_UNTIL else ""
@@ -545,7 +595,7 @@ def _holiday_events_html(events: list[dict], holiday: tuple[str, str]) -> str:
     )
 
 
-def build_html(intro: str, news, events, restaurants, development, weather=None, holiday=None) -> str:
+def build_html(intro: str, news, events, restaurants, development, weather=None, holiday=None, sports=None) -> str:
     date_str = _fmt_full_date(TODAY)
 
     def section(emoji, title, items_html):
@@ -625,6 +675,7 @@ def build_html(intro: str, news, events, restaurants, development, weather=None,
       <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 8px;">{intro}</p>
 
       {_weather_html(weather)}
+      {_sports_html(sports)}
       {_notion_promo_html()}
       {holiday_events_block}
 
@@ -702,6 +753,12 @@ def run():
     weather = fetch_weather()
     print(f"  {'OK' if weather else 'unavailable'}  ({elapsed(t)})")
 
+    # Fetch local sports (only teams with a game in the preview/result window)
+    t = time.time()
+    print(f"  Fetching: {'Local Sports':<30}", end="", flush=True)
+    sports = fetch_sports()
+    print(f"  {len(sports)} teams  ({elapsed(t)})")
+
     # Fetch all sections
     t = time.time()
     print(f"  Fetching: {'News':<30}", end="", flush=True)
@@ -742,8 +799,8 @@ def run():
         subject = f"🌆 Westerville Pulse {holiday[1]} — {holiday[0]} Edition"
     else:
         subject = f"🌆 Westerville Pulse — {date_str}"
-    plain    = build_plain(intro, news, events, restaurants, development, weather, holiday)
-    html     = build_html(intro, news, events, restaurants, development, weather, holiday)
+    plain    = build_plain(intro, news, events, restaurants, development, weather, holiday, sports)
+    html     = build_html(intro, news, events, restaurants, development, weather, holiday, sports)
 
     print(f"\n  Sending to: {', '.join(recipients)}")
     t = time.time()
