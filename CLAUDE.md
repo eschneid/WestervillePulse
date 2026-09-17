@@ -1,26 +1,37 @@
 # WestervillePulse 🌆
 **Your city's heartbeat, automated.**
 
-Scrapes local news, new restaurants, events, and city developments
-for Westerville, OH and loads them into Notion databases daily.
+Scrapes local news, new restaurants and business filings, events, and city
+developments for Westerville, OH, loads them into Notion databases daily,
+and emails a daily digest. A FastAPI backend + React frontend serve the same data.
+
+See [README.md](README.md) for the user-facing setup guide.
 
 ---
 
 ## Stack
 - **Language:** Python 3.x
 - **Databases:** Notion API (4 databases)
-- **APIs:** Google Places API (New), Google News RSS, Eventbrite
-- **Libraries:** feedparser, requests, python-dotenv (see requirements.txt)
+- **APIs:** Google Places API (New), Google News RSS, Ohio SOS, Open-Meteo, ESPN site API, Anthropic (Claude)
+- **Libraries:** feedparser, requests, beautifulsoup4, python-dotenv, anthropic, holidays, tzdata (see requirements.txt)
+- **Web app:** FastAPI backend (`backend/`), React 19 + Vite + Tailwind v4 frontend (`frontend/`)
+- **Automation:** GitHub Actions, daily at 11:00 UTC (7am EDT)
 
 ---
 
 ## Environment Variables (.env)
+Template is `env.example` (note: no leading dot).
 ```
-NOTION_TOKEN=ntn_...
-NOTION_PARENT_PAGE_ID=...
-GOOGLE_API_KEY=AIza...
-EVENTBRITE_API_KEY=...
+NOTION_TOKEN=ntn_...              # required
+NOTION_PARENT_PAGE_ID=...         # required by setup_notion.py only
+GOOGLE_API_KEY=AIza...            # required — restaurants scraper
+ANTHROPIC_API_KEY=sk-ant-...      # optional — Claude summaries + digest intro
+GMAIL_USER=you@gmail.com          # optional — daily digest sender
+GMAIL_APP_PASSWORD=xxxx xxxx ...  # optional — Gmail app password, not login password
+EVENTBRITE_API_KEY=...            # optional/unused
 ```
+Digest recipients live in `digest_recipients.txt` (one email per line), **not** in `.env`.
+`backend/` has its own `.env` (see `backend/.env.example`) and falls back to the root `.env`.
 
 ---
 
@@ -28,29 +39,44 @@ EVENTBRITE_API_KEY=...
 ```
 WestervillePulse/
 ├── CLAUDE.md                   ← you are here
+├── README.md                   ← user-facing setup guide
 ├── .env                        ← secrets, never commit
-├── .env.example                ← template
+├── env.example                 ← template
 ├── .gitignore
+├── LICENSE                     ← MIT
 ├── requirements.txt
 ├── setup_notion.py             ← run once to create Notion databases
-├── run_all.py                  ✅ runs all 5 scrapers in sequence, logs to runs.log
-├── database_ids.json           ← auto-generated Notion database IDs
+├── run_all.py                  ✅ runs 5 scrapers + digest in sequence, logs to runs.log
+├── database_ids.json           ← auto-generated Notion database IDs (gitignored)
+├── digest_recipients.txt       ← daily digest mailing list, one email per line
 ├── seen_news_urls.json         ← dedup cache for news scraper
 ├── seen_place_ids.json         ← dedup cache for restaurants scraper
+├── seen_event_urls.json        ← dedup cache for events scraper
+├── seen_development_urls.json  ← dedup cache for development scraper
 ├── seen_sos_entities.json      ← dedup cache for SOS scraper (entity numbers)
 ├── DATA_SOURCES.md             ← notes on all data sources
+├── .github/workflows/
+│   └── scrape.yml              ✅ daily cron + manual dispatch
 ├── scrapers/
 │   ├── utils.py                ← shared helpers (elapsed, find_db_ids_path, load/save seen set)
+│   ├── holiday_utils.py        ← holiday detection for the digest
+│   ├── sports_utils.py         ← local sports scores/previews (ESPN) for the digest
 │   ├── restaurants_scraper.py  ✅ complete
 │   ├── news_scraper.py         ✅ complete
 │   ├── events_scraper.py       ✅ complete
 │   ├── development_scraper.py  ✅ complete
-│   └── sos_scraper.py          ✅ complete
-├── frontend/                   ← TODO: React app
+│   ├── sos_scraper.py          ✅ complete
+│   └── digest.py               ✅ complete — daily HTML email
+├── frontend/                   ✅ React 19 + Vite + Tailwind v4
 │   ├── src/
+│   │   ├── App.jsx
+│   │   ├── api.js              ← VITE_API_URL, defaults to localhost:8000
+│   │   └── components/         ← News/Restaurants/Events/Development sections
 │   └── package.json
-└── backend/                    ← TODO: FastAPI proxy
-    └── main.py
+└── backend/                    ✅ FastAPI proxy with 15-min cache
+    ├── main.py
+    ├── requirements.txt
+    └── .env.example
 ```
 
 ---
@@ -95,8 +121,9 @@ All database IDs are stored in `database_ids.json`.
 - **Dedup:** `seen_event_urls.json` — tracks event slug + start date
 
 ### development_scraper.py ✅
-- **Sources:** Google News RSS — construction, planning, and infrastructure queries
+- **Sources:** Google News RSS (construction/planning/infrastructure queries), westervilleoh.io filtered for development content, Columbus Underground
 - **Dedup:** `seen_development_urls.json` — tracks article URLs
+- **Note:** westerville.org returns 403 for automated requests, so Planning Commission and procurement pages aren't directly scrapeable — Google News surfaces those stories once they hit the press
 
 ### sos_scraper.py ✅
 - **Source:** Ohio Secretary of State business search internal API (`businesssearch.ohiosos.gov/api/Search`)
@@ -107,13 +134,63 @@ All database IDs are stored in `database_ids.json`.
 - **Graceful failure:** If the SOS API returns 403 (bot detection), prints a clear warning and exits 0 — does not crash `run_all.py`
 - **If blocked:** Consider upgrading to Playwright (`pip install playwright`) for browser-based scraping
 
+### digest.py ✅
+- **Reads from** Notion (last 24h of news/restaurants/development, upcoming events) — it does not scrape
+- **Weather:** Open-Meteo 4-day forecast for 40.1262, -82.9291 — free, no API key
+- **Intro copy:** Claude Haiku via `ANTHROPIC_API_KEY`; falls back to a plain intro if the key is missing
+- **Holidays:** `holiday_utils.py` adds a themed banner/greeting and surfaces matching events
+- **Sports:** `sports_utils.py` pulls Ohio State football, Bengals, Browns, and Columbus Crew from ESPN's
+  public (undocumented, no key) site API. A team appears only with a result from the last 2 days or a game
+  in the next 3 days; the section hides when nothing qualifies. Teams live in `TEAMS` — add Buckeyes
+  basketball there (`basketball/mens-college-basketball`, id 194). `python scrapers/sports_utils.py` prints today's snippet.
+- **Delivery:** Gmail SMTP, sent as BCC to everyone in `digest_recipients.txt`
+- **Debug:** `python scrapers/digest.py --debug` sends only to eschneid@gmail.com
+- **Skips cleanly** if `digest_recipients.txt` is missing or empty
+
+---
+
+## Web App
+
+**Architecture:** `React App → FastAPI Backend → Notion API`
+The Notion token stays server-side — never expose it in the React app.
+
+### backend/ ✅
+FastAPI proxy over the 4 Notion databases with a 15-minute in-memory cache (`CACHE_TTL = 900`).
+- Endpoints: `GET /health`, `/api/news`, `/api/restaurants`, `/api/events`, `/api/development`
+- Database IDs come from `NOTION_*_DB_ID` env vars, with hardcoded fallbacks in `main.py`
+- ⚠️ CORS is `allow_origins=["*"]` — tighten to the deployed frontend URL before going live
+```bash
+cd backend && pip install -r requirements.txt && uvicorn main:app --reload
+```
+
+### frontend/ ✅
+React 19 + Vite + Tailwind v4. Four sections in `src/components/`:
+- 📰 News feed with category filter buttons
+- 🍽️ Restaurant grid with neighborhood + type filters
+- 🎉 Events list with category filter and a free-only toggle
+- 🏗️ Development board grouped by status
+```bash
+cd frontend && npm install && npm run dev
+```
+`VITE_API_URL` points at the backend; defaults to `http://localhost:8000`.
+
+**Hosting (not yet deployed):** Vercel for the frontend, Railway or Render for the backend.
+
+---
+
+## Automation
+
+`.github/workflows/scrape.yml` runs `run_all.py` daily at 11:00 UTC (7am EDT), plus
+`workflow_dispatch` for manual runs. Dedup caches persist between runs via `actions/cache`;
+`runs.log` uploads as an artifact with 30-day retention.
+
+Required repo secrets: `NOTION_TOKEN`, `NOTION_PARENT_PAGE_ID`, `GOOGLE_API_KEY`,
+`EVENTBRITE_API_KEY`, `ANTHROPIC_API_KEY`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`,
+`DATABASE_IDS_JSON` (contents of local `database_ids.json`).
+
 ---
 
 ## TODO
-
-### Automation
-- Windows Task Scheduler to run `run_all.py` daily at 7am
-- Or GitHub Actions cron job as an alternative
 
 ### Notion Dashboard Views (manual setup in Notion UI)
 - News: filtered view by Category, sorted by Published Date
@@ -121,39 +198,9 @@ All database IDs are stored in `database_ids.json`.
 - Events: calendar view by Start Date
 - Development: kanban board by Status
 
-### React Frontend (Phase 3)
-**Architecture:**
-```
-React App → FastAPI Backend → Notion API
-```
-The Notion token must stay server-side — never expose it in the React app.
-
-**FastAPI Backend (`backend/main.py`)**
-- Endpoint: `GET /api/news` — returns news articles from Notion
-- Endpoint: `GET /api/restaurants` — returns restaurants from Notion
-- Endpoint: `GET /api/events` — returns upcoming events from Notion
-- Endpoint: `GET /api/development` — returns city projects from Notion
-- Add CORS so the React app can call it
-- Add simple caching (cache Notion responses for 15 mins) to avoid rate limits
-
-**React Frontend (`frontend/`)**
-- Framework: React + Tailwind CSS
-- 4 main sections:
-  - 📰 News feed with category filter buttons
-  - 🍽️ Restaurant grid with neighborhood filter + type filter
-  - 🎉 Events list sorted by date, badge for free events
-  - 🏗️ Development board grouped by status
-- Mobile responsive
-- WestervillePulse branding (city/pulse theme)
-
-**Hosting:**
-- Frontend: Vercel (free tier, auto-deploys from GitHub)
-- Backend: Railway or Render (free tier)
-
-**To scaffold:**
-```bash
-claude "create a FastAPI backend in /backend with endpoints proxying our 4 Notion databases, then scaffold a React + Tailwind frontend in /frontend with a news feed, restaurant grid, events list, and development status board"
-```
+### Deployment
+- Deploy backend (Railway/Render) and frontend (Vercel)
+- Tighten backend CORS to the deployed frontend origin
 
 ---
 
@@ -165,8 +212,9 @@ python scrapers/news_scraper.py
 python scrapers/events_scraper.py
 python scrapers/development_scraper.py
 python scrapers/sos_scraper.py
+python scrapers/digest.py            # --debug to send only to yourself
 
-# All at once
+# All at once (5 scrapers + digest)
 python run_all.py
 ```
 
@@ -178,7 +226,8 @@ python run_all.py
 - Google News RSS returns max 100 results per query
 - ABC6 RSS feed returns 301 redirect — URL needs fixing
 - NBC4 and 10TV return 0 Westerville matches — may need keyword tweaking
-- Run `rm seen_news_urls.json` to reset news cache and re-pull all articles
-- Run `rm seen_place_ids.json` to reset restaurant cache
-- Run `rm seen_sos_entities.json` to reset SOS cache and re-pull all entity filings
+- Delete any `seen_*.json` to reset that scraper's cache and re-pull everything
 - SOS scraper exits cleanly (code 0) if Ohio SOS blocks access — check output for the ⚠️ warning
+- `run_all.py` parses `Added N` from each scraper's stdout for the summary — keep that line format when editing a scraper
+- Scrapers run as subprocesses with `PYTHONIOENCODING=utf-8` so the emoji output survives on Windows
+- `run_all.py` exits 1 if any scraper fails, which fails the GitHub Actions run
