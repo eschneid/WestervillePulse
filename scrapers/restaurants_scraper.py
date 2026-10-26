@@ -84,10 +84,11 @@ PLACES_DETAIL_URL  = "https://places.googleapis.com/v1/places"
 PLACES_NEW_HEADERS = {
     "Content-Type": "application/json",
     "X-Goog-Api-Key": GOOGLE_API_KEY,
+    # Pro-tier fields only: rating, websiteUri and nationalPhoneNumber would bill
+    # every search at the Enterprise SKU (1,000 free/month vs 5,000 for Pro).
     "X-Goog-FieldMask": (
         "places.id,places.displayName,places.formattedAddress,places.location,"
-        "places.rating,places.types,places.websiteUri,places.nationalPhoneNumber,"
-        "places.googleMapsUri,places.businessStatus,places.primaryType"
+        "places.types,places.googleMapsUri,places.businessStatus,places.primaryType"
     ),
 }
 
